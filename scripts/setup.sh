@@ -37,28 +37,59 @@ ok ".env OK"
 # 2) 認証
 step "2. ログイン確認（clasp / gcloud）"
 
-# clasp ログイン
+# --- clasp ---
 if [ ! -f "$HOME/.clasprc.json" ]; then
   warn "clasp 未ログイン。ブラウザが開きます → GAS を所有させたいアカウントでログインしてください。"
   npx clasp login || { err "clasp login 失敗"; exit 1; }
-else
-  ok "clasp ログイン済み"
-  info "別アカウントに切り替える場合は: npx clasp logout && npx clasp login"
 fi
+# JWT の payload からメールを取得
+CLASP_ACCOUNT="$(node -e "
+  try {
+    const rc = JSON.parse(require('fs').readFileSync(process.env.HOME+'/.clasprc.json','utf8'));
+    const t = (rc.token||{}).id_token || '';
+    if (!t) { process.stdout.write('(不明)'); process.exit(); }
+    const p = JSON.parse(Buffer.from(t.split('.')[1],'base64url').toString());
+    process.stdout.write(p.email||'(不明)');
+  } catch(e) { process.stdout.write('(解析失敗)'); }
+" 2>/dev/null || echo "(不明)")"
+info "clasp アカウント: ${C_BOLD}${CLASP_ACCOUNT}${C_RESET}"
+warn "切り替える場合は Ctrl+C → npx clasp logout && npx clasp login → mise run setup を再実行"
 
-# gcloud ログイン
+# --- gcloud ---
 if command -v gcloud >/dev/null 2>&1; then
   if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | grep -q .; then
     warn "gcloud 未ログイン。ブラウザが開きます。"
     gcloud auth login || true
-  else
-    GCLOUD_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | head -1)"
-    ok "gcloud ログイン済み（${GCLOUD_ACCOUNT}）"
-    info "別アカウントに切り替える場合は: gcloud config set account <EMAIL>"
+  fi
+  GCLOUD_ACTIVE="$(gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | head -1)"
+  GCLOUD_ALL="$(gcloud auth list --format="value(account)" 2>/dev/null)"
+  GCLOUD_COUNT="$(echo "$GCLOUD_ALL" | grep -c .)"
+  info "gcloud アクティブアカウント: ${C_BOLD}${GCLOUD_ACTIVE}${C_RESET}"
+  if [ "${GCLOUD_COUNT}" -gt 1 ]; then
+    echo "  ログイン済みアカウント一覧:"
+    echo "$GCLOUD_ALL" | while IFS= read -r acc; do
+      if [ "$acc" = "$GCLOUD_ACTIVE" ]; then
+        printf "    * %s  (現在アクティブ)\n" "$acc"
+      else
+        printf "      %s\n" "$acc"
+      fi
+    done
+    printf "%s" "${C_YELLOW}  切り替える場合はアカウントのメールを入力（そのまま Enter で ${GCLOUD_ACTIVE} を使用）: ${C_RESET}"
+    read -r SWITCH_TO
+    if [ -n "$SWITCH_TO" ]; then
+      gcloud config set account "$SWITCH_TO"
+      GCLOUD_ACTIVE="$SWITCH_TO"
+      ok "gcloud アカウントを ${GCLOUD_ACTIVE} に切り替えました"
+    fi
   fi
 else
   warn "gcloud 未導入のままです。mise install を確認してください。"
 fi
+
+echo ""
+info "続行アカウント: clasp=${CLASP_ACCOUNT} / gcloud=${GCLOUD_ACTIVE:-?}"
+warn "問題があれば Ctrl+C で中断してください。"
+pause
 ok "ログイン確認 OK"
 
 # Apps Script プロジェクトが未作成なら新規作成（.clasp.json は gitignore 済み）
