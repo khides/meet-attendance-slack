@@ -25,16 +25,29 @@
 
 type AuthMode = "oauth" | "dwd";
 
+/**
+ * 設定値の解決順:
+ *   1. ビルド時に .env から生成される ENV 定数（gitignore 済み src/env.local.ts）
+ *   2. Script Properties（手動で上書きしたい場合のフォールバック）
+ * → ENV を使えば `clasp push` だけで設定が反映され、initProperties 実行は不要。
+ */
+function resolve(key: string): string | null {
+  if (typeof ENV !== "undefined" && ENV[key] !== undefined && ENV[key] !== "") {
+    return ENV[key];
+  }
+  return PropertiesService.getScriptProperties().getProperty(key);
+}
+
 function prop(key: string): string {
-  const v = PropertiesService.getScriptProperties().getProperty(key);
+  const v = resolve(key);
   if (v === null || v === "") {
-    throw new Error(`Script Property "${key}" が未設定です`);
+    throw new Error(`設定値 "${key}" が未設定です（.env もしくは Script Properties を確認）`);
   }
   return v;
 }
 
 function propOptional(key: string): string | null {
-  return PropertiesService.getScriptProperties().getProperty(key);
+  return resolve(key);
 }
 
 const Config = {

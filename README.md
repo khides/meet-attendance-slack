@@ -28,7 +28,7 @@ Meet 入退室 → Workspace Events API(購読) → Cloud Pub/Sub(push) → GAS 
 
 ## 必要なもの
 
-- Node.js / `npm i -g @google/clasp`
+- [mise](https://mise.jdx.dev)（`node` と `gcloud` を自動導入。`clasp` は npm 依存）
 - GCP プロジェクト（Pub/Sub 用、課金有効化推奨）
 - Slack Incoming Webhook URL
 - `oauth` 方式: OAuth クライアント（ウェブ アプリ）
@@ -36,83 +36,83 @@ Meet 入退室 → Workspace Events API(購読) → Cloud Pub/Sub(push) → GAS 
 
 ---
 
-## セットアップ手順
+## セットアップ（スクリプト化）
 
-### 1. clasp プロジェクト作成
+CLI で自動化できる工程はスクリプト化済みです。**ブラウザ操作が必須の数ステップだけ**手で行います
+（OAuth 同意画面・OAuth クライアント作成・各種ログイン・主催者の同意などは Google がブラウザを要求するため、完全自動化はできません）。
+
+### クイックスタート
 ```bash
-npm install
-clasp login
-clasp create --type standalone --title "meet-attendance-slack" --rootDir dist
-# 生成された scriptId を .clasp.json に反映
-npm run push
+# 1) 設定ファイルを作成して値を入れる
+cp .env.example .env
+$EDITOR .env        # GCP_PROJECT_ID, OAUTH_CLIENT_ID/SECRET, SLACK_WEBHOOK_URL, HOSTS など
+
+# 2) 一括セットアップ（途中、手動ステップは案内されて一時停止する）
+mise run setup
+
+# 3) 主催者が認可URLで同意したのち、購読を作成
+mise run subscribe
 ```
 
-### 2. GCP プロジェクトと Pub/Sub
-1. GCP で **Cloud Pub/Sub API** と **Google Workspace Events API**、**Google Meet API** を有効化。
-2. トピックを作成（例 `meet-events`）。
-3. Workspace Events のサービスアカウントに publish 権限を付与:
-   - トピックの IAM に `meet-api-event-pusher@system.gserviceaccount.com` を **Pub/Sub パブリッシャー** として追加。
-4. この GCP プロジェクトを、Apps Script の「プロジェクトの設定 → Google Cloud Platform プロジェクト」に紐付ける（同意画面のため）。
+`mise run setup` が行うこと:
+1. `mise install`（node / gcloud）+ `npm ci`
+2. `.env` 検証、`clasp` / `gcloud` ログイン確認
+3. **手動ステップの案内**（Apps Script API 有効化 / OAuth 同意画面 / OAuth クライアント / GCP 紐付け）
+4. `scripts/gcp-setup.sh` … API 有効化・Pub/Sub トピック作成・**IAM 付与（コンソールUIが弾く箇所）**
+5. `scripts/deploy.sh` … `clasp push` → Web App デプロイ → **Pub/Sub push 購読作成**
 
-### 3. Web App をデプロイ
-```bash
-npm run deploy
-```
-- 公開された `…/exec` URL を控える（Pub/Sub の push 先になる）。
-- `appsscript.json` の webapp access は `ANYONE_ANONYMOUS`。
+設定は `.env` → ビルド時に生成される `ENV` 定数経由で読み込むため、**`clasp push` だけで反映**されます
+（`initProperties` の手動実行は不要。Script Properties で個別上書きも可能）。
 
-### 4. Pub/Sub push 購読を作成
-トピックに対し、push エンドポイント = WebApp の `exec` URL を指定して push サブスクリプションを作成。
-```bash
-gcloud pubsub subscriptions create meet-events-push \
-  --topic=meet-events \
-  --push-endpoint="https://script.google.com/macros/s/XXX/exec?token=YOUR_SHARED_TOKEN"
-```
-- `?token=` は簡易検証用（`PUSH_SHARED_TOKEN` と一致させる）。本番では OIDC + 別経路の検証を検討。
+### タスク一覧（`mise tasks`）
+| タスク | 用途 |
+|---|---|
+| `mise run setup` | 一括セットアップ（手動箇所は案内） |
+| `mise run gcp` | GCP プロビジョニングのみ（冪等） |
+| `mise run deploy` | build → push → デプロイ → push購読 |
+| `mise run subscribe` | 主催者同意確認 → 購読作成 → 更新トリガー |
+| `mise run auth` | clasp / gcloud ログイン状態の確認 |
+| `mise run build` | TypeScript ビルド |
 
-### 5. 認可方式ごとの設定
+### 方式B（`dwd`・Workspace）の追加手順
+`.env` で `AUTH_MODE=dwd` とし、`SA_CLIENT_EMAIL` / `SA_PRIVATE_KEY` を設定。さらに管理コンソールで
+**ドメイン全体の委任**にサービスアカウントのクライアント ID とスコープ
+`https://www.googleapis.com/auth/meetings.space.readonly` を登録（これはブラウザ手動）。以降は同じく `mise run setup`。
 
-#### 方式A: `oauth`（個人Gmail / 社外主催者OK）
-1. GCP で OAuth クライアント（**ウェブ アプリケーション**）を作成。
-   - 承認済みリダイレクト URI に WebApp の `…/usercallback` または `…/exec` を登録（apps-script-oauth2 の仕様に従う）。
-2. `src/setup.ts` の `initProperties()` に値を入れて一度実行（`AUTH_MODE=oauth`, `OAUTH_CLIENT_ID/SECRET`, `HOSTS`, `SLACK_WEBHOOK_URL`, `GCP_PROJECT_ID`, `PUBSUB_TOPIC`）。
-3. `showPendingAuthorizations()` を実行 → ログに出る URL を **各主催者本人** に開いてもらい同意。
-4. `createAllSubscriptions()` を実行。
-
-#### 方式B: `dwd`（Workspace・組織内全主催者を無人カバー）
-1. サービスアカウントを作成し JSON 鍵を取得。
-2. 管理コンソール → セキュリティ → アクセスとデータ管理 → API の制御 → **ドメイン全体の委任** に、
-   SA のクライアント ID と スコープ `https://www.googleapis.com/auth/meetings.space.readonly` を登録。
-3. `initProperties()` で `AUTH_MODE=dwd`, `SA_CLIENT_EMAIL`, `SA_PRIVATE_KEY`, `HOSTS` などを設定。
-4. `createAllSubscriptions()` を実行（同意 URL は不要）。
-
-### 6. 購読の自動更新
-購読には TTL があるため、`installRenewTrigger()` を一度実行して 12 時間毎の `renewAllSubscriptions` トリガーを登録。
-
-### 7. 動作確認
-- `testSlack()` で Slack 投稿を確認。
-- 対象主催者の Meet に入室 → Slack に「入室しました」通知が出れば成功。
+### 動作確認
+- Slack テスト投稿: `npx clasp run testSlack`（または エディタで `testSlack` 実行）
+- 対象主催者の Meet に入室 → Slack に「入室しました」通知が出れば成功
 
 ---
 
-## 主要関数（GASエディタから手動実行）
+## 主要関数（`clasp run` または GASエディタで実行）
 
 | 関数 | 用途 |
 |---|---|
-| `initProperties()` | Script Properties をまとめて投入 |
 | `showPendingAuthorizations()` | (oauth) 未認可主催者の認可 URL を表示 |
 | `createAllSubscriptions()` | 全主催者の購読を作成 |
 | `renewAllSubscriptions()` | 購読の TTL を延長（トリガーで自動実行） |
 | `deleteAllSubscriptions()` | 購読を全削除 |
 | `installRenewTrigger()` | 更新トリガーを登録 |
 | `testSlack()` | Slack 接続テスト |
+| `initProperties()` | （任意）ENV 値を Script Properties へ複製 |
 
 ---
 
 ## ディレクトリ構成
 ```
+mise.toml              ツール宣言（node/gcloud）+ タスク定義
+.env.example           設定テンプレ（cp して .env を作る／.env は gitignore）
+scripts/
+  setup.sh             一括セットアップ（手動箇所は案内して停止）
+  gcp-setup.sh         GCP 自動プロビジョニング（API/トピック/IAM・冪等）
+  deploy.sh            build → clasp push → デプロイ → push購読
+  subscribe.sh         主催者同意確認 → 購読作成 → 更新トリガー
+  auth-check.sh        clasp/gcloud ログイン確認
+  gen-env.mjs          .env → gitignore された src/env.local.ts を生成
+  lib.sh               共通ヘルパー
 src/
-  config.ts            Script Properties 読み出し / 定数
+  config.ts            設定解決（ENV → Script Properties の順）
   auth/
     authProvider.ts    認可の共通IF (oauth/dwd を委譲)
     oauthProvider.ts   方式A: 主催者本人の OAuth 同意
@@ -121,7 +121,8 @@ src/
   meet.ts              参加者の表示名解決 (Meet REST API)
   slack.ts             Slack Webhook 投稿 + 文面整形
   webapp.ts            doPost(Pub/Sub受信) / doGet(認可CB)
-  setup.ts             初期化・トリガー・テスト
+  setup.ts             運用関数（購読/トリガー/テスト）
+  env.local.ts         ★生成物・gitignore（.env から）
 ```
 
 ---

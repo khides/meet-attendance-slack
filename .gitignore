@@ -10,3 +10,7 @@ service-account.json
 .env
 # generated from .env at build time (contains secrets); pushed to GAS, never to git
 src/env.local.ts
+# deploy artifacts
+.webapp_url
+# mise local state
+.mise.local.toml

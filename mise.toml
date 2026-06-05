@@ -1,0 +1,38 @@
+# 開発・実行に必要なツールを宣言。`mise install` で揃う。
+# clasp は npm devDependency（package.json）として `npx clasp` で使う。
+
+[tools]
+node = "24"
+gcloud = "latest"
+
+# .env を自動で環境変数として読み込む（mise run / mise exec 経由で有効）
+[env]
+_.file = ".env"
+
+[tasks.install]
+description = "ツール（node/gcloud）と npm 依存を導入"
+run = "npm ci || npm install"
+
+[tasks.build]
+description = "TypeScript をビルド（.env → ENV 生成込み）"
+run = "npm run build"
+
+[tasks.auth]
+description = "clasp / gcloud のログイン状態を確認・案内"
+run = "bash scripts/auth-check.sh"
+
+[tasks.gcp]
+description = "GCP を自動プロビジョニング（API有効化・トピック・IAM）"
+run = "bash scripts/gcp-setup.sh"
+
+[tasks.deploy]
+description = "build → clasp push → Web App デプロイ → push購読作成"
+run = "bash scripts/deploy.sh"
+
+[tasks.subscribe]
+description = "主催者の購読作成 + 更新トリガー登録（要・主催者OAuth同意）"
+run = "bash scripts/subscribe.sh"
+
+[tasks.setup]
+description = "セットアップ一括（手動が必要な箇所は案内して一時停止）"
+run = "bash scripts/setup.sh"
