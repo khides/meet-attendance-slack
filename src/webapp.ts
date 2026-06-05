@@ -41,8 +41,21 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
     const participantResource = payload.participant || (payload.resource && payload.resource.participant);
     const participantName: string = participantResource ? participantResource.name : "";
 
-    // host 推定用ラベル: conferenceRecord 名 or イベントソース
-    const contextLabel = deriveContext(participantName, attributes);
+    // 監視対象の会議コードでフィルタ（空なら全会議を通す）
+    const targets = Config.targetMeetingCodes();
+    let meetingCode = "";
+    if (participantName && (targets.length > 0)) {
+      meetingCode = resolveMeetingCode(participantName, firstHost());
+      const norms = targets.map(normMeetingCode);
+      if (!meetingCode || norms.indexOf(normMeetingCode(meetingCode)) === -1) {
+        return textOutput("filtered (not a target meeting)", 204);
+      }
+    }
+
+    // 表示用ラベル: 会議コードが分かればそれを、無ければ conferenceRecord 名など
+    const contextLabel = meetingCode
+      ? `meet.google.com/${meetingCode}`
+      : deriveContext(participantName, attributes);
 
     // 表示名解決 (includeResource があれば追加API無しで解決)
     const info = resolveParticipant(participantName, participantResource, firstHost());

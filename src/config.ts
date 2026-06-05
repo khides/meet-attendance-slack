@@ -84,7 +84,25 @@ const Config = {
   pubsubAudience(): string | null {
     return propOptional("PUBSUB_AUDIENCE");
   },
+  /**
+   * 監視対象の会議コード（meet.google.com/【ここ】）のリスト。
+   * 空なら HOSTS が主催する全会議を対象にする。
+   * 比較はハイフン等を無視（aaa-bbbb-ccc も abtxyyxicf も一致）。
+   */
+  targetMeetingCodes(): string[] {
+    const v = propOptional("TARGET_MEETING_CODES");
+    if (!v) return [];
+    return v
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  },
 };
+
+/** 会議コードを比較用に正規化（小文字・英数字のみ）。 */
+function normMeetingCode(code: string): string {
+  return (code || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
 
 /** 購読する Meet イベント種別 */
 const MEET_EVENT_TYPES = [
