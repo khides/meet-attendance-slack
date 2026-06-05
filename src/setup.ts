@@ -4,34 +4,17 @@
 
 /**
  * Script Properties をまとめて投入する。
- * 値を埋めてから一度だけ実行し、実行後はこの関数の中身を空に戻すこと
- * (秘密情報をソースに残さない)。
+ * 値は .env（gitignore済み）に置き、`npm run build` 時に生成される
+ * gitignore 済みの src/env.local.ts（グローバル定数 ENV）から読み込む。
+ * → コミット対象のソースには秘密情報が一切残らない。
  */
 function initProperties(): void {
-  const props: { [k: string]: string } = {
-    AUTH_MODE: "oauth", // "oauth" | "dwd"
-    GCP_PROJECT_ID: "",
-    PUBSUB_TOPIC: "meet-events",
-    SLACK_WEBHOOK_URL: "",
-    HOSTS: "", // "alice@example.com,bob@gmail.com"
-
-    // --- AUTH_MODE=oauth のとき ---
-    OAUTH_CLIENT_ID: "",
-    OAUTH_CLIENT_SECRET: "",
-
-    // --- AUTH_MODE=dwd のとき (Workspace) ---
-    // SA_CLIENT_EMAIL: "",
-    // SA_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
-
-    // --- push 検証 (任意) ---
-    // PUSH_SHARED_TOKEN: "ランダムな秘密文字列",
-    // PUBSUB_AUDIENCE: "https://script.google.com/macros/s/XXX/exec",
-  };
   const store = PropertiesService.getScriptProperties();
-  Object.keys(props).forEach((k) => {
-    if (props[k] !== "") store.setProperty(k, props[k]);
+  const keys = Object.keys(ENV);
+  keys.forEach((k) => {
+    if (ENV[k] !== "") store.setProperty(k, ENV[k]);
   });
-  Logger.log("Script Properties を更新しました");
+  Logger.log(`Script Properties を更新しました (${keys.length} 件)`);
 }
 
 /**

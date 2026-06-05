@@ -5,7 +5,8 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "rimraf dist && tsc && cp appsscript.json dist/appsscript.json",
+    "gen:env": "node scripts/gen-env.mjs",
+    "build": "npm run gen:env && rimraf dist && tsc && cp appsscript.json dist/appsscript.json",
     "push": "npm run build && clasp push",
     "deploy": "npm run build && clasp deploy",
     "open": "clasp open",
