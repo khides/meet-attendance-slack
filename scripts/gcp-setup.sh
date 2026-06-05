@@ -1,14 +1,36 @@
 #!/usr/bin/env bash
 # GCP の自動プロビジョニング（冪等）:
+#   - GCP プロジェクト作成（未存在時）
 #   - API 有効化
 #   - Pub/Sub トピック作成
 #   - Meet イベント配信用 SA に Pub/Sub パブリッシャー付与（コンソールUIが弾く箇所）
+#   - DWD サービスアカウント作成 + .env への秘密鍵注入（AUTH_MODE=dwd のとき）
 source "$(dirname "$0")/lib.sh"
 
 require_cmd gcloud
 require_env GCP_PROJECT_ID PUBSUB_TOPIC
 
-step "GCP プロビジョニング（project=$GCP_PROJECT_ID）"
+step "GCP プロジェクトを確認/作成（$GCP_PROJECT_ID）"
+
+if gcloud projects describe "$GCP_PROJECT_ID" >/dev/null 2>&1; then
+  ok "GCP プロジェクトは既に存在（$GCP_PROJECT_ID）"
+else
+  info "GCP プロジェクト '$GCP_PROJECT_ID' を作成中…"
+  # 組織ID: .env の GCP_ORG_ID → gcloud から自動検出 → なし（個人プロジェクト）の順
+  ORG_ID="${GCP_ORG_ID:-}"
+  if [ -z "$ORG_ID" ]; then
+    ORG_ID="$(gcloud organizations list --format='value(ID)' 2>/dev/null | head -1)"
+  fi
+  if [ -n "$ORG_ID" ]; then
+    gcloud projects create "$GCP_PROJECT_ID" \
+      --organization="$ORG_ID" \
+      --name="$GCP_PROJECT_ID"
+    ok "GCP プロジェクトを作成（org: $ORG_ID）"
+  else
+    gcloud projects create "$GCP_PROJECT_ID" --name="$GCP_PROJECT_ID"
+    ok "GCP プロジェクトを作成（個人プロジェクト）"
+  fi
+fi
 
 gcloud config set project "$GCP_PROJECT_ID" >/dev/null
 
