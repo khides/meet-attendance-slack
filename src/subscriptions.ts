@@ -10,25 +10,50 @@
 
 const WORKSPACE_EVENTS_API = "https://workspaceevents.googleapis.com/v1";
 
-/** 全主催者ぶんの購読を作成 (既存があれば作り直し)。手動 or 初期化で実行。 */
+/**
+ * 購読を作成する。
+ * - TARGET_MEETING_CODES があれば「スペース単位」で購読（個人Gmailでも動く）。
+ *   会議コードを Meet API でスペースに解決し、そのスペースを購読する。
+ * - 空なら「ユーザー単位」で購読（主催者の全会議。Cloud Identity が必要＝Workspace向け）。
+ */
 function createAllSubscriptions(): void {
+  const codes = Config.targetMeetingCodes();
+  if (codes.length > 0) {
+    const host = Config.hosts()[0]; // スペース所有者（代表ホスト）
+    for (const code of codes) {
+      try {
+        const spaceName = resolveSpaceName(code, host); // "spaces/{id}"
+        if (!spaceName) {
+          Logger.log(`スペース解決に失敗（会議コード=${code}）。主催者がオーナーか確認してください。`);
+          continue;
+        }
+        createSubscriptionForTarget(`//meet.googleapis.com/${spaceName}`, host);
+        Logger.log(`購読を作成(space): ${code} → ${spaceName}`);
+      } catch (e) {
+        Logger.log(`購読作成に失敗 (会議コード=${code}): ${e}`);
+      }
+    }
+    return;
+  }
+  // ユーザー単位（Workspace 向け）
   for (const userEmail of Config.hosts()) {
     try {
-      createSubscriptionFor(userEmail);
-      Logger.log(`購読を作成: ${userEmail}`);
+      createSubscriptionForTarget("//cloudidentity.googleapis.com/users/me", userEmail);
+      Logger.log(`購読を作成(user): ${userEmail}`);
     } catch (e) {
       Logger.log(`購読作成に失敗 (${userEmail}): ${e}`);
     }
   }
 }
 
-/** 指定主催者のユーザー単位購読を作成する。 */
-function createSubscriptionFor(userEmail: string): void {
+/** 指定 targetResource の購読を、指定ユーザーの権限で作成する。 */
+function createSubscriptionForTarget(targetResource: string, userEmail: string): void {
   const token = getAccessTokenFor(userEmail);
+  // 注: Meet の購読では payloadOptions.includeResource は非対応のため指定しない。
+  // イベントには参加者のリソース名のみ含まれ、表示名は doPost 側で Meet API から解決する。
   const payload = {
-    targetResource: "//cloudidentity.googleapis.com/users/me",
+    targetResource: targetResource,
     eventTypes: MEET_EVENT_TYPES,
-    payloadOptions: { includeResource: true },
     notificationEndpoint: { pubsubTopic: Config.pubsubTopicPath() },
   };
 
@@ -42,8 +67,7 @@ function createSubscriptionFor(userEmail: string): void {
 
   const code = resp.getResponseCode();
   if (code === 409) {
-    // 既に同等の購読がある。renew に任せる。
-    Logger.log(`購読は既に存在 (${userEmail})`);
+    Logger.log(`購読は既に存在 (${targetResource})`);
     return;
   }
   if (code < 200 || code >= 300) {
@@ -57,7 +81,7 @@ function renewAllSubscriptions(): void {
     try {
       const subs = listSubscriptionsFor(userEmail);
       if (subs.length === 0) {
-        createSubscriptionFor(userEmail);
+        createAllSubscriptions();
         Logger.log(`購読が無かったため作成: ${userEmail}`);
         continue;
       }

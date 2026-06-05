@@ -18,14 +18,14 @@ function postToSlack(text: string): void {
 function formatAttendanceMessage(
   eventType: string,
   participant: ParticipantInfo,
-  hostEmail: string,
+  context: string,
   whenIso: string
 ): string {
   const joined = eventType.endsWith("joined");
   const emoji = joined ? ":inbox_tray:" : ":outbox_tray:";
   const verb = joined ? "入室" : "退室";
   const time = formatJst(whenIso);
-  return `${emoji} *${participant.displayName}* さんが${verb}しました（主催: ${hostEmail}, ${time}）`;
+  return `${emoji} *${participant.displayName}* さんが${verb}しました（${context} / ${time}）`;
 }
 
 function formatJst(iso: string): string {

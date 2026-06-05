@@ -36,32 +36,17 @@ function resolveParticipant(
 }
 
 /**
- * participant リソース（conferenceRecords/{cr}/participants/{p}）から、
- * その会議の「会議コード」（meet.google.com/【code】 の部分）を解決する。
- *   participant → conferenceRecord.space → space.meetingUri/meetingCode
- * conferenceRecord 単位で CacheService にキャッシュして API 呼び出しを抑える。
+ * スペースのリソース名（spaces/{id}）から会議コード
+ * （meet.google.com/【code】 の部分）を解決する。space 単位でキャッシュ。
  */
-function resolveMeetingCode(participantResourceName: string, userEmail: string): string {
-  const m = /^(conferenceRecords\/[^/]+)/.exec(participantResourceName || "");
-  if (!m) return "";
-  const confName = m[1];
-
+function resolveMeetingCodeForSpace(spaceName: string, userEmail: string): string {
+  if (!spaceName) return "";
   const cache = CacheService.getScriptCache();
-  const cacheKey = `mcode_${confName}`;
+  const cacheKey = `scode2_${spaceName}`;
   const cached = cache.get(cacheKey);
-  if (cached !== null) return cached;
+  if (cached) return cached; // 成功値のみキャッシュ利用（空は無視して再取得）
 
   const token = getAccessTokenFor(userEmail);
-
-  // conferenceRecord → space
-  const conf = meetGet(confName, token);
-  const spaceName: string = conf && conf.space ? conf.space : "";
-  if (!spaceName) {
-    cache.put(cacheKey, "", 600);
-    return "";
-  }
-
-  // space → meetingUri / meetingCode
   const space = meetGet(spaceName, token);
   let code = "";
   if (space) {
@@ -71,8 +56,20 @@ function resolveMeetingCode(participantResourceName: string, userEmail: string):
       code = String(space.meetingCode);
     }
   }
-  cache.put(cacheKey, code, 3600);
+  // 失敗(空)はキャッシュしない。成功時のみ1時間キャッシュ。
+  if (code) cache.put(cacheKey, code, 3600);
   return code;
+}
+
+/**
+ * 会議コード（例: ddd-eeee-fff）から Meet スペースのリソース名（spaces/{id}）を解決する。
+ * Meet API の spaces.get は会議コードをエイリアスとして受け付ける。
+ * 認可ユーザー（主催者）がそのスペースにアクセスできる必要がある。
+ */
+function resolveSpaceName(meetingCode: string, userEmail: string): string {
+  const token = getAccessTokenFor(userEmail);
+  const space = meetGet(`spaces/${meetingCode}`, token);
+  return space && space.name ? space.name : "";
 }
 
 function meetGet(resourceName: string, token: string): any {

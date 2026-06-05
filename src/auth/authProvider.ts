@@ -11,6 +11,18 @@
  * @param userEmail 主催者のメールアドレス
  */
 function getAccessTokenFor(userEmail: string): string {
+  // 実行ユーザー自身が主催者なら、スクリプト自身のトークンを使う。
+  // → apps-script-oauth2 の保存トークンに依存せず（失効しにくい）、
+  //   マニフェストの scope（meetings.space.readonly 等）で Meet/Events API を叩ける。
+  try {
+    const me = Session.getEffectiveUser().getEmail();
+    if (me && userEmail && me.toLowerCase() === userEmail.toLowerCase()) {
+      return ScriptApp.getOAuthToken();
+    }
+  } catch (e) {
+    // Session が使えない文脈では無視してフォールバック
+  }
+
   switch (Config.authMode()) {
     case "oauth":
       return oauthGetAccessToken(userEmail);

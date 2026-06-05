@@ -5,14 +5,20 @@
 **個人 Gmail** と **Google Workspace** の両方に対応し、認可方式を `AUTH_MODE` で切り替えられます。
 
 ```
-Meet 入退室 → Workspace Events API(購読) → Cloud Pub/Sub(push) → GAS WebApp(doPost) → Slack
+Meet 入退室
+  → Workspace Events API（空間単位の購読）
+    → Cloud Pub/Sub（pull 購読）
+      → GAS 1分ポーリング（pollPubsub）
+        → Slack
 ```
+
+> **push を使わない理由**: GAS Web App の `/exec` は 302 リダイレクトを返すため Pub/Sub の push エンドポイントにできない（2xx を返せず無限再送ループになる）。1分毎の時間トリガーで pull する設計を採用。
 
 ---
 
 ## 「他人が主催する Meet」をどう監視するか
 
-入退室イベントを受け取れるのは **その Meet のオーナー本人の認可** が必要です（招待者・共同主催では取得不可）。本リポジトリは、その「主催者の認可」を 2 方式で吸収します。
+入退室イベントを受け取れるのは **その Meet のオーナー本人の認可** が必要です（招待者・共同主催では取得不可）。本リポジトリは「主催者の認可」を 2 方式で吸収します。
 
 | 方式 | `AUTH_MODE` | 個人Gmail | Workspace | 主催者が他人のとき |
 |---|---|:---:|:---:|---|
@@ -22,7 +28,8 @@ Meet 入退室 → Workspace Events API(購読) → Cloud Pub/Sub(push) → GAS 
 - 社外/個人の主催者が混ざる → `oauth`
 - すべて自組織内の主催者 → `dwd`（管理者が一度許可すれば無人運用）
 
-監視対象は **主催者をユーザー単位で購読** するので、その人がオーナーの全 Meet（特定の会議コードを含む）を自動でカバーします。
+監視対象の会議コードは `TARGET_MEETING_CODES` で指定します（スペース単位の購読に変換）。
+空にすると主催者の全会議をカバー（Cloud Identity が必要＝Workspace 向け）。
 
 ---
 
@@ -36,100 +43,195 @@ Meet 入退室 → Workspace Events API(購読) → Cloud Pub/Sub(push) → GAS 
 
 ---
 
-## セットアップ（スクリプト化）
+## セットアップ
 
-CLI で自動化できる工程はスクリプト化済みです。**ブラウザ操作が必須の数ステップだけ**手で行います
-（OAuth 同意画面・OAuth クライアント作成・各種ログイン・主催者の同意などは Google がブラウザを要求するため、完全自動化はできません）。
+CLI で自動化できる工程はスクリプト化済みです。**ブラウザ操作が必須の数ステップだけ**手で行います。
 
-### クイックスタート
+### 1. 設定ファイルを作成
+
 ```bash
-# 1) 設定ファイルを作成して値を入れる
 cp .env.example .env
-$EDITOR .env        # GCP_PROJECT_ID, OAUTH_CLIENT_ID/SECRET, SLACK_WEBHOOK_URL, HOSTS など
-
-# 2) 一括セットアップ（途中、手動ステップは案内されて一時停止する）
-mise run setup
-
-# 3) 主催者が認可URLで同意したのち、購読を作成
-mise run subscribe
+$EDITOR .env
 ```
 
-`mise run setup` が行うこと:
+`.env` に以下を設定します（[.env.example](.env.example) に全キーのテンプレートあり）：
+
+| キー | 例 | 説明 |
+|---|---|---|
+| `GCP_PROJECT_ID` | `meet-attendance-slack` | GCP プロジェクト ID |
+| `PUBSUB_TOPIC` | `meet-events` | Pub/Sub トピック名 |
+| `SLACK_WEBHOOK_URL` | `https://hooks.slack.com/...` | Incoming Webhook URL |
+| `HOSTS` | `you@gmail.com` | 監視対象の会議オーナー（カンマ区切り） |
+| `TARGET_MEETING_CODES` | `ddd-eeee-fff` | 監視対象の会議コード（カンマ区切り、空=全会議） |
+| `AUTH_MODE` | `oauth` | `oauth` または `dwd` |
+| `OAUTH_CLIENT_ID` | `1234...apps.googleusercontent.com` | OAuth クライアント ID（方式A） |
+| `OAUTH_CLIENT_SECRET` | `GOCSPX-...` | OAuth クライアントシークレット（方式A） |
+
+### 2. 一括セットアップ（CLI 自動化部分）
+
+```bash
+mise run setup
+```
+
+途中でブラウザ操作が必要な箇所は案内して一時停止します。
+
+`mise run setup` が実行する内容:
 1. `mise install`（node / gcloud）+ `npm ci`
-2. `.env` 検証、`clasp` / `gcloud` ログイン確認
-3. **手動ステップの案内**（Apps Script API 有効化 / OAuth 同意画面 / OAuth クライアント / GCP 紐付け）
-4. `scripts/gcp-setup.sh` … API 有効化・Pub/Sub トピック作成・**IAM 付与（コンソールUIが弾く箇所）**
-5. `scripts/deploy.sh` … `clasp push` → Web App デプロイ → **Pub/Sub push 購読作成**
+2. `.env` の検証
+3. **[手動] Apps Script API 有効化** → [script.google.com/home/usersettings](https://script.google.com/home/usersettings) で「Google Apps Script API」を ON
+4. `clasp login`（Google アカウントでログイン）
+5. **[手動] OAuth 同意画面の設定** → GCP コンソールで「外部」または「内部」で作成
+6. **[手動] OAuth クライアント（ウェブ アプリ）作成** → クライアント ID / シークレットを `.env` に記入
+7. **[手動] GCP プロジェクトを Apps Script に紐付け** → [スクリプトの設定](https://script.google.com) > Google Cloud Platform プロジェクト > プロジェクト番号を入力
+8. `scripts/gcp-setup.sh` … API 有効化・Pub/Sub トピック作成・IAM 付与
+9. `scripts/deploy.sh` … `clasp push` → Web App デプロイ → **Pub/Sub pull 購読作成**
 
-設定は `.env` → ビルド時に生成される `ENV` 定数経由で読み込むため、**`clasp push` だけで反映**されます
-（`initProperties` の手動実行は不要。Script Properties で個別上書きも可能）。
+> **IAM の注意**: Workspace Events API に必要な `meet-api-event-push@system.gserviceaccount.com` は Google 管理のシステム SA のため、GCP コンソールの UI から付与できないケースがあります。スクリプト内で `gcloud` CLI を使って付与します。
 
-### タスク一覧（`mise tasks`）
+### 3. GAS エディタでの手動実行（初回のみ）
+
+`clasp push` 後、[script.google.com](https://script.google.com) を開き、以下の関数を順番に実行します。
+
+#### 3-1. 購読の作成
+
+```
+createAllSubscriptions()
+```
+
+`TARGET_MEETING_CODES` が設定されていれば、会議コードを Meet API でスペース ID に変換し、**スペース単位**の Workspace Events 購読を作成します。個人 Gmail でも動作します。
+
+> エラーが出た場合は `showPendingAuthorizations()` を実行して、主催者の認可 URL を開いてもらい、再実行してください。
+
+#### 3-2. ポーリングトリガーの登録
+
+```
+installPollTrigger()
+```
+
+`pollPubsub` を **1分毎**に実行する時間トリガーを登録します。これで Pub/Sub から自動でメッセージを取得し Slack に投稿されます。
+
+#### 3-3. 購読更新トリガーの登録
+
+```
+installRenewTrigger()
+```
+
+購読には TTL があります。**12時間毎**に `renewAllSubscriptions` を実行するトリガーを登録して自動延長します。
+
+### 4. 動作確認
+
+対象の Google Meet に入室 → Slack に「入室しました」通知が届けば成功です。
+
+```bash
+# Slack 接続テスト（GAS エディタか clasp run で実行）
+# testSlack()
+```
+
+---
+
+## タスク一覧（`mise tasks`）
+
 | タスク | 用途 |
 |---|---|
 | `mise run setup` | 一括セットアップ（手動箇所は案内） |
 | `mise run gcp` | GCP プロビジョニングのみ（冪等） |
-| `mise run deploy` | build → push → デプロイ → push購読 |
+| `mise run deploy` | build → push → デプロイ → pull 購読作成 |
 | `mise run subscribe` | 主催者同意確認 → 購読作成 → 更新トリガー |
 | `mise run auth` | clasp / gcloud ログイン状態の確認 |
 | `mise run build` | TypeScript ビルド |
 
-### 方式B（`dwd`・Workspace）の追加手順
-`.env` で `AUTH_MODE=dwd` とし、`SA_CLIENT_EMAIL` / `SA_PRIVATE_KEY` を設定。さらに管理コンソールで
-**ドメイン全体の委任**にサービスアカウントのクライアント ID とスコープ
-`https://www.googleapis.com/auth/meetings.space.readonly` を登録（これはブラウザ手動）。以降は同じく `mise run setup`。
+---
 
-### 動作確認
-- Slack テスト投稿: `npx clasp run testSlack`（または エディタで `testSlack` 実行）
-- 対象主催者の Meet に入室 → Slack に「入室しました」通知が出れば成功
+## 方式B（`dwd`・Workspace のみ）の追加手順
+
+1. `.env` で `AUTH_MODE=dwd` に変更
+2. `SA_CLIENT_EMAIL` / `SA_PRIVATE_KEY` を設定（サービスアカウントの JSON キーから取得）
+3. Google Workspace 管理コンソール > セキュリティ > API の制御 > ドメイン全体の委任 に以下を登録:
+   - クライアント ID: サービスアカウントのクライアント ID
+   - スコープ: `https://www.googleapis.com/auth/meetings.space.readonly`
+4. 以降は同じく `mise run setup`
 
 ---
 
-## 主要関数（`clasp run` または GASエディタで実行）
+## 主要関数（GAS エディタで実行）
 
 | 関数 | 用途 |
 |---|---|
+| `createAllSubscriptions()` | 購読を作成（初回・再作成時） |
+| `installPollTrigger()` | Pub/Sub 1分毎ポーリングトリガーを登録 |
+| `installRenewTrigger()` | 購読更新トリガーを登録（12h毎） |
 | `showPendingAuthorizations()` | (oauth) 未認可主催者の認可 URL を表示 |
-| `createAllSubscriptions()` | 全主催者の購読を作成 |
-| `renewAllSubscriptions()` | 購読の TTL を延長（トリガーで自動実行） |
-| `deleteAllSubscriptions()` | 購読を全削除 |
-| `installRenewTrigger()` | 更新トリガーを登録 |
+| `renewAllSubscriptions()` | 購読の TTL を手動延長 |
+| `deleteAllSubscriptions()` | 購読を全削除（リセット時） |
 | `testSlack()` | Slack 接続テスト |
-| `initProperties()` | （任意）ENV 値を Script Properties へ複製 |
+| `pollPubsub()` | Pub/Sub を手動で1回ポーリング（デバッグ用） |
 
 ---
 
 ## ディレクトリ構成
+
 ```
 mise.toml              ツール宣言（node/gcloud）+ タスク定義
 .env.example           設定テンプレ（cp して .env を作る／.env は gitignore）
 scripts/
   setup.sh             一括セットアップ（手動箇所は案内して停止）
   gcp-setup.sh         GCP 自動プロビジョニング（API/トピック/IAM・冪等）
-  deploy.sh            build → clasp push → デプロイ → push購読
+  deploy.sh            build → clasp push → デプロイ → pull 購読作成
   subscribe.sh         主催者同意確認 → 購読作成 → 更新トリガー
   auth-check.sh        clasp/gcloud ログイン確認
   gen-env.mjs          .env → gitignore された src/env.local.ts を生成
   lib.sh               共通ヘルパー
 src/
   config.ts            設定解決（ENV → Script Properties の順）
-  auth/
-    authProvider.ts    認可の共通IF (oauth/dwd を委譲)
-    oauthProvider.ts   方式A: 主催者本人の OAuth 同意
-    dwdProvider.ts     方式B: SA + ドメイン委任 (JWT 自己生成)
+  events.ts            Pub/Sub メッセージの処理・Slack 投稿ロジック
+  pull.ts              Pub/Sub pull ポーリング + トリガー管理
   subscriptions.ts     購読の作成/更新/削除
   meet.ts              参加者の表示名解決 (Meet REST API)
   slack.ts             Slack Webhook 投稿 + 文面整形
-  webapp.ts            doPost(Pub/Sub受信) / doGet(認可CB)
+  webapp.ts            doGet（OAuth コールバック用のみ）
   setup.ts             運用関数（購読/トリガー/テスト）
-  env.local.ts         ★生成物・gitignore（.env から）
+  auth/
+    authProvider.ts    認可の共通IF（実行ユーザー自身なら ScriptApp.getOAuthToken 優先）
+    oauthProvider.ts   方式A: 主催者本人の OAuth 同意（apps-script-oauth2）
+    dwdProvider.ts     方式B: SA + ドメイン委任 (JWT 自己生成)
+  env.local.ts         ★生成物・gitignore（.env から自動生成）
 ```
 
 ---
 
+## アーキテクチャの詳細
+
+### イベントフロー
+
+```
+1. Meet で入退室発生
+2. Workspace Events API が ce-type=google.workspace.meet.participant.v2.joined/left を
+   Cloud Pub/Sub トピックに発行
+3. GAS の pollPubsub()（1分毎トリガー）が pull 購読からメッセージを取得
+4. events.ts の handlePubsubMessage() がメッセージを解析:
+   - ce-subject から spaces/{id} を取得
+   - Meet API で meetingCode を解決（例: ddd-eeee-fff）
+   - TARGET_MEETING_CODES でフィルタ
+   - participantSession.name から participant リソースを取得
+   - Meet API で表示名を解決
+5. Slack Incoming Webhook に投稿
+6. messageId を CacheService に記録（重複投稿防止）
+```
+
+### 購読の種類
+
+| 状況 | 購読の targetResource | 備考 |
+|---|---|---|
+| `TARGET_MEETING_CODES` あり | `//meet.googleapis.com/spaces/{id}` | 個人 Gmail でも動作 |
+| `TARGET_MEETING_CODES` 空 | `//cloudidentity.googleapis.com/users/me` | Workspace のみ |
+
+---
+
 ## 注意点・既知の制約
+
 - **共同主催では不可**: API 上、入退室は会議オーナーのみ取得可能。
-- **二重投稿の可能性**: GAS Web App は任意の HTTP ステータスを返せず、エラー時は例外再スローで Pub/Sub に再送させる設計。再送時に二重投稿が起き得る（文面の冪等性は許容）。必要なら `messageId` の重複排除を `CacheService` で実装。
-- **TTL 更新必須**: トリガー未登録だと数日で購読が失効する。
+- **最大 1分の遅延**: Pub/Sub から pull するため、イベント発生から最大1分後に通知される。
+- **messageId による重複排除**: `CacheService`（6時間保持）で重複投稿を防いでいるが、スクリプト再起動直後は稀に二重投稿の可能性あり。
+- **TTL 更新必須**: `installRenewTrigger()` 未登録だと購読が数日で失効する。
+- **個人 Gmail の制限**: `TARGET_MEETING_CODES` 指定が必須。ユーザー単位購読（全会議一括）は Cloud Identity が必要なため個人 Gmail では使えない。
 - **プライバシー**: 参加者の入退室を記録・通知するため、参加者への事前周知・同意を推奨。
-- **スコープの厳密確認**: Meet 参加者イベントの必要スコープは Google のドキュメント（[events-meet](https://developers.google.com/workspace/events/guides/events-meet)）で最新を確認のこと。

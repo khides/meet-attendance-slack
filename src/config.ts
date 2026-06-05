@@ -60,6 +60,13 @@ const Config = {
   pubsubTopicPath(): string {
     return `projects/${prop("GCP_PROJECT_ID")}/topics/${prop("PUBSUB_TOPIC")}`;
   },
+  /** pull 購読名（既定: <topic>-pull、PUBSUB_SUBSCRIPTION で上書き可）。 */
+  pubsubSubscriptionName(): string {
+    return propOptional("PUBSUB_SUBSCRIPTION") || `${prop("PUBSUB_TOPIC")}-pull`;
+  },
+  pubsubSubscriptionPath(): string {
+    return `projects/${prop("GCP_PROJECT_ID")}/subscriptions/${this.pubsubSubscriptionName()}`;
+  },
   slackWebhookUrl(): string {
     return prop("SLACK_WEBHOOK_URL");
   },
