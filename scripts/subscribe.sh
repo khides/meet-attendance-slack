@@ -21,7 +21,8 @@ else
   echo "    2) 関数 showPendingAuthorizations を実行 → ログの認可URLを主催者が開いて同意"
   echo "    3) 関数 createAllSubscriptions を実行"
   echo "    4) 関数 installRenewTrigger を実行"
-  echo "  （clasp run には appsscript.json の executionApi と API実行可能デプロイが必要です）"
+  echo "  （clasp run には appsscript.json の executionApi に加え、デスクトップ用OAuth"
+  echo "    クライアントでの 'npx clasp login --creds creds.json' が必要です）"
   exit 0
 fi
 
