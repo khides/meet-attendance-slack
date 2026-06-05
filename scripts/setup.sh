@@ -99,13 +99,18 @@ if [ ! -f .clasp.json ]; then
   ok "Apps Script プロジェクトを作成（.clasp.json に scriptId を保存）"
 else
   SID_CHECK="$(script_id)"
-  ok "Apps Script プロジェクト既存（scriptId: ${SID_CHECK}）"
+  ok "Apps Script プロジェクト既存のためスキップ（scriptId: ${SID_CHECK}）"
+  info "別のスクリプトを使いたい場合は rm .clasp.json して再実行"
 fi
 
 # 3) ブラウザ必須の手動ステップ（冪等チェック不可なので案内のみ）
 SID="$(script_id)" || true
 SID="${SID:-}"
 REDIRECT="https://script.google.com/macros/d/${SID}/usercallback"
+
+# GCP プロジェクト番号を取得（Apps Script への紐付けで必要）
+GCP_PROJECT_NUMBER="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)' 2>/dev/null || true)"
+
 step "3. ブラウザ必須の手動ステップ（未実施なら対応）"
 cat <<EOF
   これらは Google がブラウザ操作を要求するため自動化できません。
@@ -117,8 +122,9 @@ EOF
 
 if [ "${AUTH_MODE}" = "oauth" ]; then
   cat <<EOF
-  (b) OAuth 同意画面（External）を設定し、テストユーザーに主催者(${HOSTS})を追加:
+  (b) OAuth 同意画面（Internal または External）を設定:
         https://console.cloud.google.com/auth/overview?project=${GCP_PROJECT_ID}
+        Workspace プロジェクトなら「内部」を推奨（テストユーザー追加不要）
   (c) OAuth クライアント（ウェブ アプリ）を作成し、リダイレクト URI に↓を登録:
         ${REDIRECT}
       → 取得した Client ID/Secret を .env に記入（未記入なら今入れて再実行）
@@ -126,7 +132,13 @@ EOF
 fi
 
 cat <<EOF
-  (d) Apps Script にこの GCP プロジェクトを紐付け（プロジェクト設定 → GCPプロジェクト番号）
+  (d) Apps Script にこの GCP プロジェクトを紐付け:
+        スクリプトエディタ → 歯車アイコン（プロジェクトの設定）→
+        「Google Cloud Platform プロジェクト」→ 以下の番号を入力:
+
+          GCP プロジェクト番号: ${C_BOLD}${GCP_PROJECT_NUMBER:-（取得失敗。gcloud projects describe ${GCP_PROJECT_ID} で確認）}${C_RESET}
+
+        スクリプト: https://script.google.com/d/${SID}/edit
 EOF
 pause
 
