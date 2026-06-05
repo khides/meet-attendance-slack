@@ -31,7 +31,7 @@ fi
 
 info "Meet イベント配信 SA に Pub/Sub パブリッシャーを付与中…"
 gcloud pubsub topics add-iam-policy-binding "$PUBSUB_TOPIC" \
-  --member="serviceAccount:meet-api-event-pusher@system.gserviceaccount.com" \
+  --member="serviceAccount:meet-api-event-push@system.gserviceaccount.com" \
   --role="roles/pubsub.publisher" \
   --project "$GCP_PROJECT_ID" >/dev/null
 ok "IAM 付与完了（コンソールUIで弾かれていた箇所はこれで解決）"
