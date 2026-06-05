@@ -31,6 +31,7 @@ require_env AUTH_MODE GCP_PROJECT_ID PUBSUB_TOPIC SLACK_WEBHOOK_URL HOSTS
 if [ "${AUTH_MODE}" = "oauth" ]; then
   require_env OAUTH_CLIENT_ID OAUTH_CLIENT_SECRET
 fi
+# dwd モードは SA_CLIENT_EMAIL / SA_PRIVATE_KEY を gcp-setup.sh が自動生成するため、ここでは不要
 ok ".env OK"
 
 # 2) 認証
@@ -59,14 +60,40 @@ cat <<EOF
 
   (a) Apps Script API を有効化:
         https://script.google.com/home/usersettings → 「Google Apps Script API」をオン
+EOF
+
+if [ "${AUTH_MODE}" = "oauth" ]; then
+  cat <<EOF
   (b) OAuth 同意画面（External）を設定し、テストユーザーに主催者(${HOSTS})を追加:
         https://console.cloud.google.com/auth/overview?project=${GCP_PROJECT_ID}
   (c) OAuth クライアント（ウェブ アプリ）を作成し、リダイレクト URI に↓を登録:
         ${REDIRECT}
       → 取得した Client ID/Secret を .env に記入（未記入なら今入れて再実行）
+EOF
+fi
+
+cat <<EOF
   (d) Apps Script にこの GCP プロジェクトを紐付け（プロジェクト設定 → GCPプロジェクト番号）
 EOF
 pause
+
+# DWD モード: ドメイン全体の委任はスクリプトが SA を作った後に案内
+if [ "${AUTH_MODE}" = "dwd" ]; then
+  step "3b. DWD: Workspace 管理コンソールでドメイン全体の委任を設定"
+  cat <<EOF
+  ※ この手順は次の gcp-setup.sh でサービスアカウントを作成してから行います。
+     （下記の CLIENT_ID は gcp-setup.sh 完了後に確認できます）
+
+  管理者コンソール（Workspace 管理者権限が必要）:
+    https://admin.google.com →
+      セキュリティ → アクセスとデータ管理 → APIの制御 →
+      ドメイン全体の委任 → 新しく追加
+        クライアントID  : service-account.json の "client_id" の値
+        OAuth スコープ  : https://www.googleapis.com/auth/meetings.space.readonly
+
+  ※ 自分が管理者でない場合は IT 管理者に依頼してください。
+EOF
+fi
 
 # 4) GCP 自動プロビジョニング
 bash scripts/gcp-setup.sh
