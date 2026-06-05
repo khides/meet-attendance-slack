@@ -103,7 +103,8 @@ else
 fi
 
 # 3) ブラウザ必須の手動ステップ（冪等チェック不可なので案内のみ）
-SID="$(script_id)"
+SID="$(script_id)" || true
+SID="${SID:-}"
 REDIRECT="https://script.google.com/macros/d/${SID}/usercallback"
 step "3. ブラウザ必須の手動ステップ（未実施なら対応）"
 cat <<EOF

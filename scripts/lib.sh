@@ -51,9 +51,14 @@ pause() {
   read -r _
 }
 
-# scriptId を .clasp.json から取得
+# scriptId を .clasp.json から取得（失敗時は空文字を返す・常に exit 0）
 script_id() {
-  node -e "process.stdout.write(require('./.clasp.json').scriptId||'')" 2>/dev/null
+  node -e "
+    try {
+      var c = require('./.clasp.json');
+      process.stdout.write(c.scriptId || c.scriptID || '');
+    } catch(e) {}
+  " 2>/dev/null || true
 }
 
 load_env
