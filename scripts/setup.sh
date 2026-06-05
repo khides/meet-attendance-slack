@@ -92,23 +92,37 @@ warn "問題があれば Ctrl+C で中断してください。"
 pause
 ok "ログイン確認 OK"
 
-# Apps Script プロジェクトが未作成なら新規作成（.clasp.json は gitignore 済み）
+# Apps Script プロジェクトを用意（.clasp.json は gitignore 済み）
+APP_TITLE="meet-attendance-slack"
 if [ ! -f .clasp.json ]; then
-  step "2b. Apps Script プロジェクトを新規作成"
-  npx clasp create --type webapp --title "meet-attendance-slack" --rootDir dist
-  ok "Apps Script プロジェクトを作成（.clasp.json に scriptId を保存）"
+  step "2b. Apps Script プロジェクトを用意"
+  EXISTING_SID="$(find_script_by_title "$APP_TITLE")"
+  if [ -n "${EXISTING_SID:-}" ]; then
+    # 同名の既存プロジェクトを再利用（.clasp.json を生成して紐付け）
+    node -e "require('fs').writeFileSync('.clasp.json', JSON.stringify({scriptId:'${EXISTING_SID}',rootDir:'dist'},null,2))"
+    ok "同名の既存スクリプトを再利用（scriptId: ${EXISTING_SID}）"
+    info "新規に作り直したい場合は↑のスクリプトを削除してから再実行"
+  else
+    npx clasp create --type webapp --title "$APP_TITLE" --rootDir dist
+    ok "Apps Script プロジェクトを作成（.clasp.json に scriptId を保存）"
+  fi
 else
   SID_CHECK="$(script_id)"
   ok "Apps Script プロジェクト既存のためスキップ（scriptId: ${SID_CHECK}）"
   info "別のスクリプトを使いたい場合は rm .clasp.json して再実行"
 fi
 
+# 2c) GCP 自動プロビジョニング（プロジェクト作成・API・トピック・IAM・DWD SA）
+#     先に実行しておくことで、後続の手動ステップで GCP プロジェクト番号と
+#     DWD の client_id を提示できる。
+bash scripts/gcp-setup.sh
+
 # 3) ブラウザ必須の手動ステップ（冪等チェック不可なので案内のみ）
 SID="$(script_id)" || true
 SID="${SID:-}"
 REDIRECT="https://script.google.com/macros/d/${SID}/usercallback"
 
-# GCP プロジェクト番号を取得（Apps Script への紐付けで必要）
+# GCP プロジェクト番号（Apps Script への紐付けで必要。gcp-setup 後なので取得可能）
 GCP_PROJECT_NUMBER="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)' 2>/dev/null || true)"
 
 step "3. ブラウザ必須の手動ステップ（未実施なら対応）"
@@ -118,13 +132,14 @@ cat <<EOF
 
   (a) Apps Script API を有効化:
         https://script.google.com/home/usersettings → 「Google Apps Script API」をオン
+
+  (b) OAuth 同意画面を設定（GCP を Apps Script に紐付けるのに必須）:
+        https://console.cloud.google.com/auth/overview?project=${GCP_PROJECT_ID}
+        Workspace プロジェクトなら「内部」を推奨（テストユーザー追加不要）
 EOF
 
 if [ "${AUTH_MODE}" = "oauth" ]; then
   cat <<EOF
-  (b) OAuth 同意画面（Internal または External）を設定:
-        https://console.cloud.google.com/auth/overview?project=${GCP_PROJECT_ID}
-        Workspace プロジェクトなら「内部」を推奨（テストユーザー追加不要）
   (c) OAuth クライアント（ウェブ アプリ）を作成し、リダイレクト URI に↓を登録:
         ${REDIRECT}
       → 取得した Client ID/Secret を .env に記入（未記入なら今入れて再実行）
@@ -140,34 +155,30 @@ cat <<EOF
 
         スクリプト: https://script.google.com/d/${SID}/edit
 EOF
-pause
 
-# DWD モード: ドメイン全体の委任はスクリプトが SA を作った後に案内
+# DWD モード: gcp-setup が SA を作成済みなので client_id を提示できる
 if [ "${AUTH_MODE}" = "dwd" ]; then
-  step "3b. DWD: Workspace 管理コンソールでドメイン全体の委任を設定"
+  SA_CLIENT_ID="$(node -e "try{process.stdout.write(require('./service-account.json').client_id||'')}catch(e){}" 2>/dev/null || true)"
   cat <<EOF
-  ※ この手順は次の gcp-setup.sh でサービスアカウントを作成してから行います。
-     （下記の CLIENT_ID は gcp-setup.sh 完了後に確認できます）
 
-  管理者コンソール（Workspace 管理者権限が必要）:
-    https://admin.google.com →
-      セキュリティ → アクセスとデータ管理 → APIの制御 →
-      ドメイン全体の委任 → 新しく追加
-        クライアントID  : service-account.json の "client_id" の値
-        OAuth スコープ  : https://www.googleapis.com/auth/meetings.space.readonly
+  (e) DWD: Workspace 管理コンソールでドメイン全体の委任を設定（管理者権限が必要）:
+        https://admin.google.com →
+          セキュリティ → アクセスとデータ管理 → APIの制御 →
+          ドメイン全体の委任 → 新しく追加
 
-  ※ 自分が管理者でない場合は IT 管理者に依頼してください。
+          クライアントID  : ${C_BOLD}${SA_CLIENT_ID:-（service-account.json の client_id）}${C_RESET}
+          OAuth スコープ  : https://www.googleapis.com/auth/meetings.space.readonly
+
+      ※ 自分が管理者でない場合は IT 管理者に依頼してください。
 EOF
 fi
+pause
 
-# 4) GCP 自動プロビジョニング
-bash scripts/gcp-setup.sh
-
-# 5) デプロイ + push購読
+# 4) デプロイ + pull購読
 bash scripts/deploy.sh
 
-# 6) 残り（購読作成）
-step "6. 最後のステップ"
+# 5) 残り（購読作成）
+step "5. 最後のステップ"
 cat <<EOF
   ${C_GREEN}自動化分は完了しました。${C_RESET}
   残りは主催者の同意 → 購読作成です:
