@@ -104,6 +104,26 @@ const Config = {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
   },
+  /**
+   * 会議コードごとの Slack Webhook URL マッピング。
+   * 形式: "abc-def-ghi=https://hooks.slack.com/..., xyz-uvw-rst=https://..."
+   *   ・会議コードと URL を = で区切る
+   *   ・エントリ間は , で区切る（URL に , は含まれない）
+   * 未設定の会議は slackWebhookUrl()（デフォルト）にフォールバック。
+   */
+  meetingSlackMap(): { [normCode: string]: string } {
+    const v = propOptional("MEETING_SLACK_MAP");
+    const map: { [normCode: string]: string } = {};
+    if (!v) return map;
+    for (const entry of v.split(",")) {
+      const eq = entry.indexOf("=");
+      if (eq === -1) continue;
+      const code = normMeetingCode(entry.slice(0, eq).trim());
+      const url = entry.slice(eq + 1).trim();
+      if (code && url.startsWith("http")) map[code] = url;
+    }
+    return map;
+  },
 };
 
 /** 会議コードを比較用に正規化（小文字・英数字のみ）。 */

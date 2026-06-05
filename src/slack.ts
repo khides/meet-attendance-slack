@@ -2,8 +2,8 @@
  * Slack Incoming Webhook への投稿。
  */
 
-function postToSlack(text: string): void {
-  const resp = UrlFetchApp.fetch(Config.slackWebhookUrl(), {
+function postToSlack(text: string, webhookUrl?: string): void {
+  const resp = UrlFetchApp.fetch(webhookUrl || Config.slackWebhookUrl(), {
     method: "post",
     contentType: "application/json",
     payload: JSON.stringify({ text: text }),

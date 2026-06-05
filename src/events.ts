@@ -60,10 +60,14 @@ function handlePubsubMessage(message: any): void {
     ? `meet.google.com/${meetingCode}`
     : deriveContext(participantName, attributes);
 
-  const info = resolveParticipant(participantName, null, firstHost());
-  Logger.log(`[post] name=${info.displayName} kind=${info.kind} ${eventType}`);
+  // 会議コードごとに投稿先 Slack チャンネルを切り替える（MEETING_SLACK_MAP）
+  const slackMap = Config.meetingSlackMap();
+  const slackUrl = meetingCode ? slackMap[normMeetingCode(meetingCode)] : undefined;
 
-  postToSlack(formatAttendanceMessage(eventType, info, contextLabel, whenIso));
+  const info = resolveParticipant(participantName, null, firstHost());
+  Logger.log(`[post] name=${info.displayName} kind=${info.kind} ${eventType} slack=${slackUrl ? "mapped" : "default"}`);
+
+  postToSlack(formatAttendanceMessage(eventType, info, contextLabel, whenIso), slackUrl);
   if (messageId) markProcessed(messageId);
 }
 
