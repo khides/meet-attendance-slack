@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.clasp.json
+.clasprc.json
+*.log
+.DS_Store
+
+# secrets — never commit
+service-account.json
+.env

@@ -1,0 +1,20 @@
+{
+  "name": "meet-attendance-slack",
+  "version": "0.1.0",
+  "description": "Post Google Meet join/leave events to Slack in real time. Supports both personal Gmail (OAuth) and Google Workspace (domain-wide delegation).",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "rimraf dist && tsc && cp appsscript.json dist/appsscript.json",
+    "push": "npm run build && clasp push",
+    "deploy": "npm run build && clasp deploy",
+    "open": "clasp open",
+    "logs": "clasp logs --watch"
+  },
+  "devDependencies": {
+    "@google/clasp": "^2.4.2",
+    "@types/google-apps-script": "^1.0.83",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.4.0"
+  }
+}
