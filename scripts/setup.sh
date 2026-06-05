@@ -36,19 +36,40 @@ ok ".env OK"
 
 # 2) 認証
 step "2. ログイン確認（clasp / gcloud）"
+
+# clasp ログイン
 if [ ! -f "$HOME/.clasprc.json" ]; then
-  warn "clasp 未ログイン。別ターミナルで 'npx clasp login'（主催者の個人Gmail）を実行してください。"
-  pause
+  warn "clasp 未ログイン。ブラウザが開きます → GAS を所有させたいアカウントでログインしてください。"
+  npx clasp login || { err "clasp login 失敗"; exit 1; }
+else
+  ok "clasp ログイン済み"
+  info "別アカウントに切り替える場合は: npx clasp logout && npx clasp login"
 fi
+
+# gcloud ログイン
 if command -v gcloud >/dev/null 2>&1; then
   if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | grep -q .; then
-    warn "gcloud 未ログイン。'gcloud auth login' を実行してください。"
+    warn "gcloud 未ログイン。ブラウザが開きます。"
     gcloud auth login || true
+  else
+    GCLOUD_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/dev/null | head -1)"
+    ok "gcloud ログイン済み（${GCLOUD_ACCOUNT}）"
+    info "別アカウントに切り替える場合は: gcloud config set account <EMAIL>"
   fi
 else
   warn "gcloud 未導入のままです。mise install を確認してください。"
 fi
 ok "ログイン確認 OK"
+
+# Apps Script プロジェクトが未作成なら新規作成（.clasp.json は gitignore 済み）
+if [ ! -f .clasp.json ]; then
+  step "2b. Apps Script プロジェクトを新規作成"
+  npx clasp create --type webapp --title "meet-attendance-slack" --rootDir dist
+  ok "Apps Script プロジェクトを作成（.clasp.json に scriptId を保存）"
+else
+  SID_CHECK="$(script_id)"
+  ok "Apps Script プロジェクト既存（scriptId: ${SID_CHECK}）"
+fi
 
 # 3) ブラウザ必須の手動ステップ（冪等チェック不可なので案内のみ）
 SID="$(script_id)"
