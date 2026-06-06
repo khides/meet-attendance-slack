@@ -40,6 +40,7 @@ gcloud services enable \
   workspaceevents.googleapis.com \
   pubsub.googleapis.com \
   script.googleapis.com \
+  orgpolicy.googleapis.com \
   --project "$GCP_PROJECT_ID"
 ok "API 有効化完了"
 
@@ -52,11 +53,90 @@ else
 fi
 
 info "Meet イベント配信 SA に Pub/Sub パブリッシャーを付与中…"
-gcloud pubsub topics add-iam-policy-binding "$PUBSUB_TOPIC" \
-  --member="serviceAccount:meet-api-event-push@system.gserviceaccount.com" \
-  --role="roles/pubsub.publisher" \
-  --project "$GCP_PROJECT_ID" >/dev/null
-ok "IAM 付与完了（コンソールUIで弾かれていた箇所はこれで解決）"
+MEET_PUBLISHER_SA="meet-api-event-push@system.gserviceaccount.com"
+
+grant_publisher() {
+  gcloud pubsub topics add-iam-policy-binding "$PUBSUB_TOPIC" \
+    --member="serviceAccount:${MEET_PUBLISHER_SA}" \
+    --role="roles/pubsub.publisher" \
+    --project "$GCP_PROJECT_ID" 2>"$BIND_ERR" >/dev/null
+}
+
+BIND_ERR="$(mktemp)"
+if grant_publisher; then
+  ok "IAM 付与完了"
+else
+  if grep -q "allowedPolicyMemberDomains\|permitted organization\|permitted customer" "$BIND_ERR"; then
+    warn "組織ポリシー『ドメイン制限共有』が Google 管理 SA の追加をブロックしています。"
+    cat <<EOF
+  ${MEET_PUBLISHER_SA} は Google 所有のシステムアカウント（組織外）のため、
+  制約 constraints/iam.allowedPolicyMemberDomains に阻まれています。
+
+  対処（このプロジェクトのみ一時的に緩和 → 付与 → 元に戻す）:
+    ・要 権限: roles/orgpolicy.policyAdmin（組織/プロジェクトのポリシー管理者）
+    ・影響範囲: プロジェクト ${GCP_PROJECT_ID} のみ
+EOF
+    printf "%s" "${C_YELLOW}  権限があり、自動で緩和→付与→復元してよければ y を入力（それ以外で中断）: ${C_RESET}"
+    read -r ANS
+    if [ "$ANS" = "y" ] || [ "$ANS" = "Y" ]; then
+      info "プロジェクト ${GCP_PROJECT_ID} の allowedPolicyMemberDomains を一時的に allowAll へ…"
+      OP_YAML="$(mktemp)"
+      cat > "$OP_YAML" <<EOF
+name: projects/${GCP_PROJECT_ID}/policies/iam.allowedPolicyMemberDomains
+spec:
+  rules:
+  - allowAll: true
+EOF
+      if gcloud org-policies set-policy "$OP_YAML" --project "$GCP_PROJECT_ID" >/dev/null 2>&1; then
+        ok "組織ポリシーを一時緩和"
+        info "反映待ち（最大60秒）…"
+        SUCCESS=0
+        for _ in $(seq 1 12); do
+          sleep 5
+          if grant_publisher; then SUCCESS=1; break; fi
+        done
+        # 元のポリシー（プロジェクト override を削除＝組織既定へ戻す）
+        gcloud org-policies reset constraints/iam.allowedPolicyMemberDomains \
+          --project "$GCP_PROJECT_ID" >/dev/null 2>&1 \
+          && ok "組織ポリシーを復元（プロジェクト override を削除）" \
+          || warn "組織ポリシーの復元に失敗。手動で確認してください。"
+        if [ "$SUCCESS" = "1" ]; then
+          ok "IAM 付与完了"
+        else
+          err "緩和後も付与に失敗しました。少し時間をおいて再実行してください。"
+          rm -f "$BIND_ERR" "$OP_YAML"
+          exit 1
+        fi
+        rm -f "$OP_YAML"
+      else
+        err "組織ポリシーの変更に失敗（権限不足の可能性）。管理者に依頼してください。"
+        cat <<EOF
+  管理者向け手順（roles/orgpolicy.policyAdmin が必要）:
+    cat > op.yaml <<'YAML'
+    name: projects/${GCP_PROJECT_ID}/policies/iam.allowedPolicyMemberDomains
+    spec:
+      rules:
+      - allowAll: true
+    YAML
+    gcloud org-policies set-policy op.yaml --project ${GCP_PROJECT_ID}
+    # 緩和後に mise run setup を再実行。完了したら↓で復元:
+    gcloud org-policies reset constraints/iam.allowedPolicyMemberDomains --project ${GCP_PROJECT_ID}
+EOF
+        rm -f "$BIND_ERR" "$OP_YAML"
+        exit 1
+      fi
+    else
+      err "中断しました。組織ポリシー緩和後に再実行してください。"
+      rm -f "$BIND_ERR"
+      exit 1
+    fi
+  else
+    err "IAM 付与に失敗: $(cat "$BIND_ERR")"
+    rm -f "$BIND_ERR"
+    exit 1
+  fi
+fi
+rm -f "$BIND_ERR"
 
 ok "GCP プロビジョニング完了"
 
