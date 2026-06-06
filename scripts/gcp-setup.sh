@@ -153,13 +153,32 @@ if [ "${AUTH_MODE:-}" = "dwd" ]; then
       --display-name="Meet DWD" \
       --project "$GCP_PROJECT_ID"
     ok "SA を作成（$SA_EMAIL）"
+    # SA 作成は結果整合性。describe が通るまで待ってから鍵を作る。
+    info "SA の反映待ち…"
+    for _ in $(seq 1 12); do
+      gcloud iam service-accounts describe "$SA_EMAIL" --project "$GCP_PROJECT_ID" >/dev/null 2>&1 && break
+      sleep 5
+    done
   fi
 
   if [ ! -f service-account.json ]; then
-    gcloud iam service-accounts keys create service-account.json \
-      --iam-account="$SA_EMAIL" \
-      --project "$GCP_PROJECT_ID"
-    ok "キーを生成 → service-account.json（gitignore 済み）"
+    # 反映直後は鍵作成が NOT_FOUND になることがあるためリトライ
+    KEY_OK=0
+    for _ in $(seq 1 6); do
+      if gcloud iam service-accounts keys create service-account.json \
+          --iam-account="$SA_EMAIL" \
+          --project "$GCP_PROJECT_ID" 2>/dev/null; then
+        KEY_OK=1; break
+      fi
+      info "鍵作成リトライ中…"
+      sleep 5
+    done
+    if [ "$KEY_OK" = "1" ]; then
+      ok "キーを生成 → service-account.json（gitignore 済み）"
+    else
+      err "SA 鍵の生成に失敗しました。少し待って再実行してください。"
+      exit 1
+    fi
   else
     ok "service-account.json は既に存在（スキップ）"
   fi
