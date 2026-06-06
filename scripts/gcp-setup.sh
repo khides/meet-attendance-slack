@@ -161,7 +161,15 @@ if [ "${AUTH_MODE:-}" = "dwd" ]; then
     done
   fi
 
-  if [ ! -f service-account.json ]; then
+  # 有効な鍵JSONが無ければ作成（空ファイルや壊れた JSON は作り直す）
+  SA_JSON_VALID=0
+  if [ -s service-account.json ] && node -e "JSON.parse(require('fs').readFileSync('service-account.json','utf8')).private_key" >/dev/null 2>&1; then
+    SA_JSON_VALID=1
+  else
+    rm -f service-account.json  # 0バイト/不正ファイルを除去
+  fi
+
+  if [ "$SA_JSON_VALID" = "0" ]; then
     # 反映直後は鍵作成が NOT_FOUND になることがあるためリトライ
     KEY_OK=0
     for _ in $(seq 1 6); do
