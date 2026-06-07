@@ -31,12 +31,28 @@ else
   ok "DWD モード: 主催者の個別 OAuth 同意は不要（ドメイン全体委任で認可済み）"
 fi
 
-step "購読を作成"
-npx clasp run createAllSubscriptions || {
-  warn "createAllSubscriptions の clasp run に失敗。エディタで実行してください（npx clasp open）。"
+editor_fallback() {
+  warn "clasp run が使えませんでした（要・デスクトップOAuth資格情報）。"
+  cat <<EOF
+  Apps Script エディタで以下の関数を順番に実行してください:
+    1) npx clasp open
+    2) createAllSubscriptions   … 監視対象スペースの購読を作成
+    3) installPollTrigger        … Pub/Sub を1分毎にポーリング（受信の本体）
+    4) installRenewTrigger       … 購読TTLを12時間毎に延長
+
+  ※ 初回実行時に新しい権限（cloud-platform 等）の承認が求められます。
+    画面の指示に従って許可してください。
+EOF
   exit 0
 }
+
+step "購読を作成"
+npx clasp run createAllSubscriptions || editor_fallback
 ok "購読を作成"
+
+step "ポーリングトリガーを登録（1分毎・受信本体）"
+npx clasp run installPollTrigger || editor_fallback
+ok "ポーリングトリガーを登録"
 
 step "更新トリガーを登録（12時間毎・TTL延長）"
 npx clasp run installRenewTrigger || warn "installRenewTrigger はエディタで実行してください。"
