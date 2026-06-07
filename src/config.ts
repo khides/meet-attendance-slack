@@ -91,7 +91,7 @@ const Config = {
   /**
    * 監視対象の会議コード（meet.google.com/【ここ】）のリスト。
    * 空なら HOSTS が主催する全会議を対象にする。
-   * 比較はハイフン等を無視（aaa-bbbb-ccc も abtxyyxicf も一致）。
+   * 比較はハイフン等を無視（aaa-bbbb-ccc も aaabbbbccc も一致）。
    */
   targetMeetingCodes(): string[] {
     const v = propOptional("TARGET_MEETING_CODES");

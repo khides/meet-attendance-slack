@@ -62,7 +62,7 @@ function resolveMeetingCodeForSpace(spaceName: string, userEmail: string): strin
 }
 
 /**
- * 会議コード（例: ddd-eeee-fff）から Meet スペースのリソース名（spaces/{id}）を解決する。
+ * 会議コード（例: aaa-bbbb-ccc）から Meet スペースのリソース名（spaces/{id}）を解決する。
  * Meet API の spaces.get は会議コードをエイリアスとして受け付ける。
  * 認可ユーザー（主催者）がそのスペースにアクセスできる必要がある。
  */

@@ -62,7 +62,7 @@ $EDITOR .env
 | `PUBSUB_TOPIC` | `meet-events` | Pub/Sub トピック名 |
 | `SLACK_WEBHOOK_URL` | `https://hooks.slack.com/...` | Incoming Webhook URL |
 | `HOSTS` | `you@gmail.com` | 監視対象の会議オーナー（カンマ区切り） |
-| `TARGET_MEETING_CODES` | `ddd-eeee-fff` | 監視対象の会議コード（カンマ区切り、空=全会議） |
+| `TARGET_MEETING_CODES` | `aaa-bbbb-ccc` | 監視対象の会議コード（カンマ区切り、空=全会議） |
 | `AUTH_MODE` | `oauth` | `oauth` または `dwd` |
 | `OAUTH_CLIENT_ID` | `1234...apps.googleusercontent.com` | OAuth クライアント ID（方式A） |
 | `OAUTH_CLIENT_SECRET` | `GOCSPX-...` | OAuth クライアントシークレット（方式A） |
@@ -210,7 +210,7 @@ src/
 3. GAS の pollPubsub()（1分毎トリガー）が pull 購読からメッセージを取得
 4. events.ts の handlePubsubMessage() がメッセージを解析:
    - ce-subject から spaces/{id} を取得
-   - Meet API で meetingCode を解決（例: ddd-eeee-fff）
+   - Meet API で meetingCode を解決（例: aaa-bbbb-ccc）
    - TARGET_MEETING_CODES でフィルタ
    - participantSession.name から participant リソースを取得
    - Meet API で表示名を解決
