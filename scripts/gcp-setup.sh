@@ -41,6 +41,7 @@ gcloud services enable \
   pubsub.googleapis.com \
   script.googleapis.com \
   orgpolicy.googleapis.com \
+  iamcredentials.googleapis.com \
   --project "$GCP_PROJECT_ID"
 ok "API 有効化完了"
 
