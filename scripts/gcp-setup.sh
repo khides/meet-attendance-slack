@@ -140,9 +140,11 @@ rm -f "$BIND_ERR"
 
 ok "GCP プロビジョニング完了"
 
-# DWD モード: サービスアカウントの作成 + .env への秘密鍵注入
+# DWD モード【キーレス】: SA 作成 + GAS 実行ユーザーへ Token Creator 付与
+#   秘密鍵はダウンロードしない（組織ポリシー disableServiceAccountKeyCreation 順守）。
+#   GAS は実行ユーザー権限で iamcredentials.signJwt を呼び、SA に署名させる。
 if [ "${AUTH_MODE:-}" = "dwd" ]; then
-  step "DWD サービスアカウントを作成"
+  step "DWD サービスアカウント（キーレス）を準備"
   SA_NAME="meet-dwd"
   SA_EMAIL="${SA_NAME}@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
 
@@ -153,7 +155,6 @@ if [ "${AUTH_MODE:-}" = "dwd" ]; then
       --display-name="Meet DWD" \
       --project "$GCP_PROJECT_ID"
     ok "SA を作成（$SA_EMAIL）"
-    # SA 作成は結果整合性。describe が通るまで待ってから鍵を作る。
     info "SA の反映待ち…"
     for _ in $(seq 1 12); do
       gcloud iam service-accounts describe "$SA_EMAIL" --project "$GCP_PROJECT_ID" >/dev/null 2>&1 && break
@@ -161,37 +162,27 @@ if [ "${AUTH_MODE:-}" = "dwd" ]; then
     done
   fi
 
-  # 有効な鍵JSONが無ければ作成（空ファイルや壊れた JSON は作り直す）
-  SA_JSON_VALID=0
-  if [ -s service-account.json ] && node -e "JSON.parse(require('fs').readFileSync('service-account.json','utf8')).private_key" >/dev/null 2>&1; then
-    SA_JSON_VALID=1
+  # GAS 実行ユーザー（= gcloud アクティブアカウント）へ SA の署名権限を付与
+  GAS_USER="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -1)"
+  if [ -n "$GAS_USER" ]; then
+    info "${GAS_USER} に ${SA_NAME} の Token Creator 権限を付与中…"
+    gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
+      --member="user:${GAS_USER}" \
+      --role="roles/iam.serviceAccountTokenCreator" \
+      --project "$GCP_PROJECT_ID" >/dev/null
+    ok "Token Creator 付与完了（${GAS_USER}）"
   else
-    rm -f service-account.json  # 0バイト/不正ファイルを除去
+    warn "gcloud アクティブアカウントを取得できませんでした。手動で Token Creator を付与してください。"
   fi
 
-  if [ "$SA_JSON_VALID" = "0" ]; then
-    # 反映直後は鍵作成が NOT_FOUND になることがあるためリトライ
-    KEY_OK=0
-    for _ in $(seq 1 6); do
-      if gcloud iam service-accounts keys create service-account.json \
-          --iam-account="$SA_EMAIL" \
-          --project "$GCP_PROJECT_ID" 2>/dev/null; then
-        KEY_OK=1; break
-      fi
-      info "鍵作成リトライ中…"
-      sleep 5
-    done
-    if [ "$KEY_OK" = "1" ]; then
-      ok "キーを生成 → service-account.json（gitignore 済み）"
-    else
-      err "SA 鍵の生成に失敗しました。少し待って再実行してください。"
-      exit 1
-    fi
-  else
-    ok "service-account.json は既に存在（スキップ）"
-  fi
+  # SA の OAuth2 クライアントID（ドメイン全体の委任の登録に使う）
+  SA_OAUTH_CLIENT_ID="$(gcloud iam service-accounts describe "$SA_EMAIL" \
+    --project "$GCP_PROJECT_ID" --format='value(oauth2ClientId)' 2>/dev/null || true)"
 
-  info ".env に SA 認証情報を書き込み中…"
-  node scripts/inject-sa.mjs
-  ok ".env 更新完了（SA_CLIENT_EMAIL / SA_PRIVATE_KEY）"
+  info ".env に SA メールを書き込み中…"
+  node scripts/set-env.mjs "SA_CLIENT_EMAIL=${SA_EMAIL}"
+  ok ".env 更新完了（SA_CLIENT_EMAIL）"
+
+  # 後続の手動ステップ(e)で使えるようファイルに残す（gitignore 済み）
+  printf "%s\n" "${SA_OAUTH_CLIENT_ID:-}" > .sa_oauth_client_id 2>/dev/null || true
 fi

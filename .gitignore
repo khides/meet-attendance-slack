@@ -12,5 +12,6 @@ service-account.json
 src/env.local.ts
 # deploy artifacts
 .webapp_url
+.sa_oauth_client_id
 # mise local state
 .mise.local.toml

@@ -31,7 +31,7 @@ require_env AUTH_MODE GCP_PROJECT_ID PUBSUB_TOPIC SLACK_WEBHOOK_URL HOSTS
 if [ "${AUTH_MODE}" = "oauth" ]; then
   require_env OAUTH_CLIENT_ID OAUTH_CLIENT_SECRET
 fi
-# dwd モードは SA_CLIENT_EMAIL / SA_PRIVATE_KEY を gcp-setup.sh が自動生成するため、ここでは不要
+# dwd モードは SA_CLIENT_EMAIL を gcp-setup.sh が自動生成するため、ここでは不要（キーレス）
 ok ".env OK"
 
 # 2) 認証
@@ -158,7 +158,7 @@ EOF
 
 # DWD モード: gcp-setup が SA を作成済みなので client_id を提示できる
 if [ "${AUTH_MODE}" = "dwd" ]; then
-  SA_CLIENT_ID="$(node -e "try{process.stdout.write(require('./service-account.json').client_id||'')}catch(e){}" 2>/dev/null || true)"
+  SA_CLIENT_ID="$(cat .sa_oauth_client_id 2>/dev/null || true)"
   cat <<EOF
 
   (e) DWD: Workspace 管理コンソールでドメイン全体の委任を設定（管理者権限が必要）:
@@ -166,10 +166,11 @@ if [ "${AUTH_MODE}" = "dwd" ]; then
           セキュリティ → アクセスとデータ管理 → APIの制御 →
           ドメイン全体の委任 → 新しく追加
 
-          クライアントID  : ${C_BOLD}${SA_CLIENT_ID:-（service-account.json の client_id）}${C_RESET}
+          クライアントID  : ${C_BOLD}${SA_CLIENT_ID:-（gcloud iam service-accounts describe meet-dwd@${GCP_PROJECT_ID}.iam.gserviceaccount.com --format='value(oauth2ClientId)' で確認）}${C_RESET}
           OAuth スコープ  : https://www.googleapis.com/auth/meetings.space.readonly
 
       ※ 自分が管理者でない場合は IT 管理者に依頼してください。
+      ※ キーレス方式です。SA の秘密鍵はダウンロードしません。
 EOF
 fi
 pause

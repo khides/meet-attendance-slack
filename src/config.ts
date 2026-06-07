@@ -15,9 +15,9 @@
  *   OAUTH_CLIENT_ID
  *   OAUTH_CLIENT_SECRET
  *
- * DWD (AUTH_MODE=dwd, Workspace のみ) のとき:
- *   SA_CLIENT_EMAIL        サービスアカウントのメール
- *   SA_PRIVATE_KEY         サービスアカウント秘密鍵 (PEM, 改行は \n のまま可)
+ * DWD (AUTH_MODE=dwd, Workspace のみ) のとき:【キーレス】
+ *   SA_CLIENT_EMAIL        なりすまし元 SA のメール（meet-dwd@...）
+ *   ※ 秘密鍵は不要。IAM Credentials signJwt で署名する（dwdProvider 参照）。
  *
  * doPost 検証用 (任意だが推奨):
  *   PUBSUB_AUDIENCE        Pub/Sub push の OIDC トークン aud (= Web App URL)
@@ -84,9 +84,6 @@ const Config = {
   },
   saClientEmail(): string {
     return prop("SA_CLIENT_EMAIL");
-  },
-  saPrivateKey(): string {
-    return prop("SA_PRIVATE_KEY").replace(/\\n/g, "\n");
   },
   pubsubAudience(): string | null {
     return propOptional("PUBSUB_AUDIENCE");
