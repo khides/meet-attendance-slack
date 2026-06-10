@@ -28,13 +28,22 @@ SUB_NAME="${PUBSUB_SUBSCRIPTION:-${PUBSUB_TOPIC}-pull}"
 if gcloud pubsub subscriptions describe "$SUB_NAME" --project "$GCP_PROJECT_ID" >/dev/null 2>&1; then
   ok "pull 購読は既に存在（$SUB_NAME）"
 else
-  # ack 期限は処理時間に余裕を持たせる
-  gcloud pubsub subscriptions create "$SUB_NAME" \
+  # ack 期限は処理時間に余裕を持たせる。
+  # describe が認証エラーで失敗した場合、create も "already exists" で失敗することがある。
+  # その場合は成功扱いにする。
+  CREATE_OUT="$(gcloud pubsub subscriptions create "$SUB_NAME" \
     --topic="$PUBSUB_TOPIC" \
     --ack-deadline=60 \
     --message-retention-duration=1d \
-    --project "$GCP_PROJECT_ID" >/dev/null
-  ok "pull 購読を作成（$SUB_NAME）"
+    --project "$GCP_PROJECT_ID" 2>&1)" && \
+    ok "pull 購読を作成（$SUB_NAME）" || {
+      if echo "$CREATE_OUT" | grep -q "already exists\|Resource already exists"; then
+        ok "pull 購読は既に存在（$SUB_NAME）"
+      else
+        echo "$CREATE_OUT" >&2
+        exit 1
+      fi
+    }
 fi
 
 ok "デプロイ完了。受信は GAS の pollPubsub（1分毎トリガー）で行います。"
