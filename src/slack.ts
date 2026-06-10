@@ -14,18 +14,23 @@ function postToSlack(text: string, webhookUrl?: string): void {
   }
 }
 
-/** 入退室を見やすい文面に整形する。 */
+/** 入退室を見やすい文面に整形する。
+ *  入室=🟢（緑丸） / 退室=🔺（赤三角）で一目で区別。
+ *  headcount >= 0 のとき「現在 N名」を付与（不明なら省略）。 */
 function formatAttendanceMessage(
   eventType: string,
   participant: ParticipantInfo,
   context: string,
-  whenIso: string
+  whenIso: string,
+  headcount: number
 ): string {
   const joined = eventType.endsWith("joined");
-  const emoji = joined ? ":inbox_tray:" : ":outbox_tray:";
+  const emoji = joined ? ":large_green_circle:" : ":small_red_triangle:";
   const verb = joined ? "入室" : "退室";
   const time = formatJst(whenIso);
-  return `${emoji} *${participant.displayName}* さんが${verb}しました（${context} / ${time}）`;
+  const countPart =
+    headcount >= 0 ? ` ｜ :busts_in_silhouette: 現在 ${headcount}名` : "";
+  return `${emoji} *${participant.displayName}* さんが${verb}しました${countPart}（${context} / ${time}）`;
 }
 
 function formatJst(iso: string): string {

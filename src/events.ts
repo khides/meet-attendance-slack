@@ -65,9 +65,20 @@ function handlePubsubMessage(message: any): void {
   const slackUrl = meetingCode ? slackMap[normMeetingCode(meetingCode)] : undefined;
 
   const info = resolveParticipant(participantName, null, firstHost());
-  Logger.log(`[post] name=${info.displayName} kind=${info.kind} ${eventType} slack=${slackUrl ? "mapped" : "default"}`);
 
-  postToSlack(formatAttendanceMessage(eventType, info, contextLabel, whenIso), slackUrl);
+  // 現在の在室人数（conferenceRecords/{cr} 単位で数える）。失敗時は -1（人数非表示）。
+  const crMatch = /^(conferenceRecords\/[^/]+)/.exec(participantName);
+  let headcount = -1;
+  if (crMatch) {
+    try {
+      headcount = countActiveParticipants(crMatch[1], firstHost());
+    } catch (e) {
+      Logger.log(`人数取得に失敗: ${e}`);
+    }
+  }
+  Logger.log(`[post] name=${info.displayName} kind=${info.kind} ${eventType} headcount=${headcount} slack=${slackUrl ? "mapped" : "default"}`);
+
+  postToSlack(formatAttendanceMessage(eventType, info, contextLabel, whenIso, headcount), slackUrl);
   if (messageId) markProcessed(messageId);
 }
 

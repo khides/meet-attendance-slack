@@ -72,6 +72,31 @@ function resolveSpaceName(meetingCode: string, userEmail: string): string {
   return space && space.name ? space.name : "";
 }
 
+/**
+ * 会議（conferenceRecord）に現在いる参加者数を数える。
+ * conferenceRecords/{cr}/participants を列挙し、まだ退室していない
+ * （latestEndTime が未設定の）参加者を数える。取得失敗時は -1。
+ */
+function countActiveParticipants(conferenceRecordName: string, userEmail: string): number {
+  if (!conferenceRecordName) return -1;
+  const token = getAccessTokenFor(userEmail);
+  let count = 0;
+  let pageToken = "";
+  let pages = 0;
+  do {
+    const q = `${conferenceRecordName}/participants?pageSize=100${
+      pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""
+    }`;
+    const data = meetGet(q, token);
+    if (!data) return -1; // 取得失敗
+    for (const p of data.participants || []) {
+      if (!p.latestEndTime) count++; // 退室時刻が無い＝在室中
+    }
+    pageToken = data.nextPageToken || "";
+  } while (pageToken && ++pages < 10);
+  return count;
+}
+
 function meetGet(resourceName: string, token: string): any {
   const resp = UrlFetchApp.fetch(`${MEET_API}/${resourceName}`, {
     method: "get",
